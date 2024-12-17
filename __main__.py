@@ -3,42 +3,11 @@
 import pulumi
 import pulumi_aws as aws
 import json
+from lambda_fct.make_layer import make_layer
 
-# Create an AWS resource (S3 Bucket)
-bucket = aws.s3.BucketV2("my-bucket")
 
-website = aws.s3.BucketWebsiteConfigurationV2(
-    "website",
-    bucket=bucket.id,
-    index_document={
-        "suffix": "index.html",
-    },
-)
-
-# Create an S3 Bucket object
-ownership_controls = aws.s3.BucketOwnershipControls(
-    "ownership-controls",
-    bucket=bucket.id,
-    rule={
-        "object_ownership": "ObjectWriter",
-    },
-)
-
-public_access_block = aws.s3.BucketPublicAccessBlock(
-    "public-access-block", bucket=bucket.id, block_public_acls=False
-)
-
-bucket_object = aws.s3.BucketObject(
-    "index.html",
-    bucket=bucket.id,
-    source=pulumi.FileAsset("index.html"),
-    content_type="text/html",
-    acl="public-read",
-    opts=pulumi.ResourceOptions(
-        depends_on=[public_access_block, ownership_controls, website]
-    ),
-)
-
+###
+# Lambda Function
 # Lambda function: fetch external resource
 lambda_role = aws.iam.Role(
     "lambdaRole",
@@ -69,21 +38,23 @@ lambda_function = aws.lambda_.Function(
     role=lambda_role.arn,
     runtime="python3.11",
     handler="handler.lambda_handler",
-    code=pulumi.AssetArchive({".": pulumi.FileArchive("./lambda")}),
+    code=pulumi.AssetArchive({".": pulumi.FileArchive("./lambda_fct")}),
     environment={"variables": {"EXTERNAL_URL": "https://meme-api.com/gimme"}},
 )
 
+
+###
 # === API Gateway V1 (REST API) ===
 api = aws.apigateway.RestApi(
     "restApi", description="API Gateway V1 with Lambda Integration"
 )
 
-# Resource: /get-meme
+# Resource: /getmeme
 resource = aws.apigateway.Resource(
     "getMemeResource",
     rest_api=api.id,
     parent_id=api.root_resource_id,
-    path_part="get-meme",
+    path_part="getmeme",
 )
 
 # Method: GET
@@ -127,20 +98,55 @@ aws.lambda_.Permission(
     source_arn=pulumi.Output.concat(api.execution_arn, "/*"),
 )
 
-# Export the API URL and the static website
-pulumi.export(
-    "api_url",
-    pulumi.Output.concat(
-        "https://",
-        api.id,
-        ".execute-api.",
-        aws.config.region,
-        ".amazonaws.com/dev/get-meme",
-    ),
+###
+# S3 and Website
+# === Generate script.js Dynamically ===
+api_url = pulumi.Output.concat(
+    "https://",
+    api.id,
+    ".execute-api.",
+    aws.config.region,
+    ".amazonaws.com/dev/getmeme",
 )
-pulumi.export("website_url", bucket.website_endpoint)
 
-# # Export the name of the bucket
-# pulumi.export(
-#     "bucket_endpoint", pulumi.Output.concat("http://", website.website_endpoint)
-# )
+script_content = pulumi.Output.format(
+    """
+const button = document.getElementById("getMemeBtn");
+const memeImage = document.getElementById("memeImage");
+
+const apiUrl = "{0}";
+
+button.addEventListener("click", async () => {{
+    try {{
+        const response = await fetch(apiUrl);
+        const data = await response.json();
+        memeImage.src = data.meme_url;
+        memeImage.style.display = "block";
+    }} catch (error) {{
+        console.error("Error fetching meme:", error);
+    }}
+}});
+""",
+    api_url,
+)
+
+# Write the dynamically generated script to the bucket
+bucket = aws.s3.Bucket("staticSiteBucket", website={"index_document": "index.html"})
+
+index_html = aws.s3.BucketObject(
+    "indexHtml",
+    bucket=bucket.id,
+    source=pulumi.FileAsset("website/index.html"),
+    content_type="text/html",
+)
+
+script_js = aws.s3.BucketObject(
+    "scriptJs",
+    bucket=bucket.id,
+    content=script_content,
+    content_type="application/javascript",
+)
+
+# Export Outputs
+pulumi.export("api_url", api_url)
+pulumi.export("website_url", bucket.website_endpoint)
