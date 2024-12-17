@@ -3,7 +3,6 @@
 import pulumi
 import pulumi_aws as aws
 import json
-import requests
 
 # Create an AWS resource (S3 Bucket)
 bucket = aws.s3.BucketV2("my-bucket")
@@ -111,7 +110,6 @@ integration = aws.apigateway.Integration(
 deployment = aws.apigateway.Deployment(
     "apiDeployment",
     rest_api=api.id,
-    triggers={"redeployment": pulumi.Output.all(resource.id, integration.id)},
     opts=pulumi.ResourceOptions(depends_on=[integration]),
 )
 
