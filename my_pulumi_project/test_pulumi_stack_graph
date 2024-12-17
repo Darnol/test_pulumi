@@ -1,0 +1,21 @@
+strict digraph {
+    Resource0 [label="urn:pulumi:dev::my_pulumi_project::aws:s3/bucketPublicAccessBlock:BucketPublicAccessBlock::public-access-block"];
+    Resource0 -> Resource1 [color = "#AA6639"];
+    Resource0 -> Resource2 [color = "#246C60"];
+    Resource2 [label="urn:pulumi:dev::my_pulumi_project::aws:s3/bucketObject:BucketObject::index.html"];
+    Resource2 -> Resource1 [color = "#AA6639"];
+    Resource1 [label="urn:pulumi:dev::my_pulumi_project::pulumi:pulumi:Stack::my_pulumi_project-dev"];
+    Resource3 [label="urn:pulumi:dev::my_pulumi_project::pulumi:providers:aws::default_6_65_0"];
+    Resource4 [label="urn:pulumi:dev::my_pulumi_project::aws:s3/bucketV2:BucketV2::my-bucket"];
+    Resource4 -> Resource5 [color = "#246C60", label = "bucket"];
+    Resource4 -> Resource0 [color = "#246C60", label = "bucket"];
+    Resource4 -> Resource2 [color = "#246C60", label = "bucket"];
+    Resource4 -> Resource1 [color = "#AA6639"];
+    Resource4 -> Resource6 [color = "#246C60", label = "bucket"];
+    Resource6 [label="urn:pulumi:dev::my_pulumi_project::aws:s3/bucketWebsiteConfigurationV2:BucketWebsiteConfigurationV2::website"];
+    Resource6 -> Resource2 [color = "#246C60"];
+    Resource6 -> Resource1 [color = "#AA6639"];
+    Resource5 [label="urn:pulumi:dev::my_pulumi_project::aws:s3/bucketOwnershipControls:BucketOwnershipControls::ownership-controls"];
+    Resource5 -> Resource1 [color = "#AA6639"];
+    Resource5 -> Resource2 [color = "#246C60"];
+}
