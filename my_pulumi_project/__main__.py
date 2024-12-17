@@ -71,35 +71,56 @@ lambda_function = aws.lambda_.Function(
     runtime="python3.11",
     handler="handler.lambda_handler",
     code=pulumi.AssetArchive({".": pulumi.FileArchive("./lambda")}),
-    environment={"variables": {"EXTERNAL_URL": "https://example.com/resource"}},
+    environment={"variables": {"EXTERNAL_URL": "https://meme-api.com/gimme"}},
 )
 
-# API Gateway
-api = aws.apigatewayv2.Api("httpApi", protocol_type="HTTP")
-
-# API Integration with Lambda
-integration = aws.apigatewayv2.Integration(
-    "httpApiIntegration",
-    api_id=api.id,
-    integration_type="AWS_PROXY",
-    integration_method="POST",
-    integration_uri=lambda_function.invoke_arn,
+# === API Gateway V1 (REST API) ===
+api = aws.apigateway.RestApi(
+    "restApi", description="API Gateway V1 with Lambda Integration"
 )
 
-# Route
-route = aws.apigatewayv2.Route(
-    "httpApiRoute",
-    api_id=api.id,
-    route_key="GET /fetch-resource",
-    target=pulumi.Output.concat("integrations/", integration.id),
+# Resource: /get-meme
+resource = aws.apigateway.Resource(
+    "getMemeResource",
+    rest_api=api.id,
+    parent_id=api.root_resource_id,
+    path_part="get-meme",
 )
 
-# Deploy API
-stage = aws.apigatewayv2.Stage(
-    "httpApiStage", api_id=api.id, name="$default", auto_deploy=True
+# Method: GET
+method = aws.apigateway.Method(
+    "getMemeMethod",
+    rest_api=api.id,
+    resource_id=resource.id,
+    http_method="GET",
+    authorization="NONE",
 )
 
-# Grant permission for API Gateway to invoke the Lambda
+# Integration with Lambda
+integration = aws.apigateway.Integration(
+    "lambdaIntegration",
+    rest_api=api.id,
+    resource_id=resource.id,
+    http_method=method.http_method,
+    integration_http_method="POST",
+    type="AWS_PROXY",
+    uri=lambda_function.invoke_arn,
+)
+
+# Deployment
+deployment = aws.apigateway.Deployment(
+    "apiDeployment",
+    rest_api=api.id,
+    triggers={"redeployment": pulumi.Output.all(resource.id, integration.id)},
+    opts=pulumi.ResourceOptions(depends_on=[integration]),
+)
+
+# Stage
+stage = aws.apigateway.Stage(
+    "apiStage", rest_api=api.id, deployment=deployment.id, stage_name="dev"
+)
+
+# Lambda permission for API Gateway
 aws.lambda_.Permission(
     "apiLambdaPermission",
     action="lambda:InvokeFunction",
@@ -108,8 +129,18 @@ aws.lambda_.Permission(
     source_arn=pulumi.Output.concat(api.execution_arn, "/*"),
 )
 
-# Export the API URL
-pulumi.export("api_endpoint", api.api_endpoint)
+# Export the API URL and the static website
+pulumi.export(
+    "api_url",
+    pulumi.Output.concat(
+        "https://",
+        api.id,
+        ".execute-api.",
+        aws.config.region,
+        ".amazonaws.com/dev/get-meme",
+    ),
+)
+pulumi.export("website_url", bucket.website_endpoint)
 
 # # Export the name of the bucket
 # pulumi.export(
