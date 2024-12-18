@@ -8,6 +8,11 @@ from lambda_fct.make_layer import make_layer
 
 ###
 # Lambda Function
+
+# For the lambda funciton, create the zip archive with the dependencies
+LAMBDA_LAYER_ZIP = "lambda_layer.zip"
+make_layer(LAMBDA_LAYER_ZIP)
+
 # Lambda function: fetch external resource
 lambda_role = aws.iam.Role(
     "lambdaRole",
@@ -32,13 +37,25 @@ aws.iam.RolePolicyAttachment(
     policy_arn="arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole",
 )
 
+# Lambda Layer
+layer = aws.lambda_.LayerVersion(
+    "requestsLayer",
+    layer_name="requests-layer",
+    compatible_runtimes=["python3.11"],
+    code=pulumi.FileArchive(f"./lambda_fct/{LAMBDA_LAYER_ZIP}"),
+    description="Dynamically generated layer",
+)
+
 # Lambda Function
 lambda_function = aws.lambda_.Function(
     "fetchResourceFunction",
     role=lambda_role.arn,
     runtime="python3.11",
     handler="handler.lambda_handler",
-    code=pulumi.AssetArchive({".": pulumi.FileArchive("./lambda_fct")}),
+    code=pulumi.AssetArchive(
+        {".": pulumi.FileArchive("./lambda_fct")},
+    ),
+    layers=[layer.arn],
     environment={"variables": {"EXTERNAL_URL": "https://meme-api.com/gimme"}},
 )
 
@@ -104,8 +121,8 @@ aws.lambda_.Permission(
 api_url = pulumi.Output.concat(
     "https://",
     api.id,
-    ".execute-api.",
-    aws.config.region,
+    ".execute-api.",  # type: ignore
+    aws.config.region,  # type: ignore
     ".amazonaws.com/dev/getmeme",
 )
 
@@ -120,7 +137,7 @@ button.addEventListener("click", async () => {{
     try {{
         const response = await fetch(apiUrl);
         const data = await response.json();
-        memeImage.src = data.meme_url;
+        memeImage.src = data.url;
         memeImage.style.display = "block";
     }} catch (error) {{
         console.error("Error fetching meme:", error);
@@ -133,11 +150,28 @@ button.addEventListener("click", async () => {{
 # Write the dynamically generated script to the bucket
 bucket = aws.s3.Bucket("staticSiteBucket", website={"index_document": "index.html"})
 
-index_html = aws.s3.BucketObject(
-    "indexHtml",
+ownership_controls = aws.s3.BucketOwnershipControls(
+    "ownership-controls",
     bucket=bucket.id,
-    source=pulumi.FileAsset("website/index.html"),
-    content_type="text/html",
+    rule={
+        "object_ownership": "ObjectWriter",
+    },
+)
+
+public_access_block = aws.s3.BucketPublicAccessBlock(
+    "public-access-block",
+    bucket=bucket.id,
+    block_public_acls=False,
+    block_public_policy=False,  # Ensure public policies are not blocked
+    ignore_public_acls=False,  # Ensure public ACLs are not ignored
+)
+
+website = aws.s3.BucketWebsiteConfigurationV2(
+    "website",
+    bucket=bucket.id,
+    index_document={
+        "suffix": "index.html",
+    },
 )
 
 script_js = aws.s3.BucketObject(
@@ -145,8 +179,23 @@ script_js = aws.s3.BucketObject(
     bucket=bucket.id,
     content=script_content,
     content_type="application/javascript",
+    acl="public-read",
 )
+
+index_html = aws.s3.BucketObject(
+    "indexHtml",
+    bucket=bucket.id,
+    source=pulumi.FileAsset("website/index.html"),
+    content_type="text/html",
+    acl="public-read",
+    opts=pulumi.ResourceOptions(
+        depends_on=[public_access_block, ownership_controls, website]
+    ),
+)
+
 
 # Export Outputs
 pulumi.export("api_url", api_url)
-pulumi.export("website_url", bucket.website_endpoint)
+pulumi.export(
+    "bucket_endpoint", pulumi.Output.concat("http://", website.website_endpoint)
+)
